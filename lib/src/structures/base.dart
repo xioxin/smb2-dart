@@ -108,7 +108,7 @@ abstract class Structure {
 }
 class Field {
   String key;
-  int length;
+  dynamic length;
   dynamic defaultValue;
   Map<String, dynamic> translates;
   Field(this.key, this.length, {this.defaultValue, this.translates});

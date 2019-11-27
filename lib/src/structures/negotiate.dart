@@ -13,6 +13,39 @@ class Negotiate extends Structure {
     Field('Dialects', 4, defaultValue: 0x02021002),
   ];
 
+/*
+*
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* */
   @override
-  List<Field> response = [];
+  List<Field> response = [
+    Field('StructureSize', 2),
+    Field('SecurityMode', 2),
+    Field('DialectRevision', 2),
+    Field('Reserved', 2),
+    Field('ServerGuid', 16),
+    Field('Capabilities', 4),
+    Field('MaxTransactSize', 4),
+    Field('MaxReadSize', 4),
+    Field('MaxWriteSize', 4),
+    Field('SystemTime', 8),
+    Field('ServerStartTime', 8),
+    Field('SecurityBufferOffset', 2),
+    Field('SecurityBufferLength', 2),
+    Field('Reserved2', 4),
+    Field('Buffer', 'SecurityBufferLength'),
+  ];
 }
