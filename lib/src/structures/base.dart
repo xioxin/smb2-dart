@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:smb2/src/tools/buffer.dart';
 
 abstract class Structure {
@@ -54,15 +56,10 @@ abstract class Structure {
 
       value ??= 0;
 
-      if([1,2,4,8].contains(r.length)) {
-        if(value is int) {
-          buffer.writeUint(r.length, value);
-        } else if(value is List<int>) {
-          buffer.writeUint(r.length, bufferToInt(value));
-        }else {
-          throw '未实现2';
-        }
-      } else {
+
+      if([1,2,4,8].contains(r.length) && value is int) {
+        buffer.writeUint(r.length, value, Endian.little);
+      }else {
         List<int> valueListInt;
         if(value is int) {
           valueListInt = [value];
@@ -78,6 +75,7 @@ abstract class Structure {
           throw '未实现3';
         }
       }
+
     });
     return buffer.toBytes().toList();
   }
@@ -88,10 +86,12 @@ abstract class Structure {
     Map<String, dynamic> data = {};
     response.forEach((r) {
       var value;
-      if(r.length is int) {
-        value = reader.readUint(r.length);
-      }else if(r.length is String) {
+      if(r.length is String) {
         value = reader.read(data[r.length]);
+      }else if(r.length is int && [1,2,4,8].contains(r.length)) {
+        value = reader.readUint(r.length, Endian.little);
+      } else {
+        value = reader.read(r.length);
       }
       if(r.translates != null) {
         final tv = r.translates.map((k, v) => MapEntry(v, k))[data[r.key]];

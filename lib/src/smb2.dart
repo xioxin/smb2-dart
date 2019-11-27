@@ -82,11 +82,21 @@ class SMB {
     while (extract) {
       extract = false;
       if(responseBuffer.remainingLength >= 4) {
-        final msgLength = (responseBuffer.readUint8() << 16) + responseBuffer.readUint16();
+        final msgLength = responseBuffer.readUint32(Endian.big);
+        
+        print('msgLength');
+        print(msgLength);
+        
         if(responseBuffer.remainingLength >= msgLength) {
           extract = true;
           final headerData = readHeaders(responseBuffer.read(HeaderLength));
+
+          print(headerData);
+
           var mId = headerData["MessageId"].toRadixString(16).padLeft(8, '0');
+          
+          
+          
           final buffer = responseBuffer.read(msgLength - HeaderLength);
           if (responsesCompleter[mId] != null) {
             responsesCompleter[mId].complete(buffer);
@@ -94,9 +104,12 @@ class SMB {
           } else {
             throw "no find responsesCompleter";
           }
-          final oldResponseBuffer = this.responseBuffer;
-          this.responseBuffer = ByteDataReader();
-          this.responseBuffer.add(oldResponseBuffer.read(oldResponseBuffer.remainingLength).toList());
+
+          if(this.responseBuffer.remainingLength > 0) {
+            final oldResponseBuffer = this.responseBuffer;
+            this.responseBuffer = ByteDataReader();
+            this.responseBuffer.add(oldResponseBuffer.read(oldResponseBuffer.remainingLength).toList());
+          }
         }
       }
     }
