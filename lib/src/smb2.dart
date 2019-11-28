@@ -94,10 +94,8 @@ class SMB {
       random.nextInt(256) & 0xff,
       random.nextInt(256) & 0xfe
     ];
-    print(processId);
 
     await request(Negotiate(), {});
-//    print(test);
     await request(SessionSetupStep1(), {});
     await request(SessionSetupStep2(), {});
     await request(TreeConnect(), {});
@@ -108,29 +106,20 @@ class SMB {
     structure.connection = this;
     final mid = this.messageId ++;
 
-    print('\n\n\n ===================: ${mid} :=================== ');
-
     final header = this.isAsync ?
     HeaderAsync(processId: this.processId, sessionId: this.sessionId) :
     HeaderSync(processId: this.processId, sessionId: this.sessionId);
-
     final headerData = Map<String, dynamic>();
     headerData.addAll(structure.headers);
     headerData['MessageId'] = mid;
-
     final buffer = header.getBuffer(headerData) + structure.getBuffer(params);
     final data = addNetBios(buffer);
-    print('socket add ${data.length}');
-    print(data);
-
     this.socket.add(data);
-    print('等待返回数据');
     return await getResponse(structure, mid);
   }
 
   Future<SMBMessage> getResponse(Structure structure, int messageId) async {
     final mid = messageId.toRadixString(16).padLeft(8, '0');
-    print('注册 ${mid}');
     Completer c = new Completer<SMBMessage>();
     responsesCompleter[mid] = c;
     SMBMessage msg = await c.future;
@@ -146,8 +135,6 @@ class SMB {
 
 
   response(List<int> data) {
-    print('response');
-    print(data);
     responseBuffer.add(data);
     bool extract = true;
     while (extract) {
@@ -198,8 +185,6 @@ class SMB {
     return netBios.toBytes().toList() + buffer;
   }
 
-
-
   Future<bool> exists(String path) async {
     var data;
     try {
@@ -224,13 +209,19 @@ class SMB {
     final data = await request(CloseFile(), {
       'fileId': fileId,
     });
-    print(data);
   }
-
 
   rename() {}
 
-  readFile() {}
+  List<int> readFile(String path) {
+    /*
+    * smb2Client.readFile('path\\to\\my\\file.txt', function(err, content) {
+  if (err) throw err;
+  console.log(content);
+});
+    * */
+
+  }
 
   createReadStream() {}
 

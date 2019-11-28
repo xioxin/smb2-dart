@@ -65,8 +65,6 @@ abstract class Structure {
       }
     });
 
-    print(data);
-
     request.forEach((r) {
       dynamic value = data != null ? data[r.key] : null;
       value ??= r.defaultValue ?? 0;
