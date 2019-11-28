@@ -1,6 +1,15 @@
 import 'base.dart';
 
 class Negotiate extends Structure {
+
+  @override
+  Map<String, dynamic> headers = {
+    'Command': 'NEGOTIATE',
+  };
+
+  @override
+  String successCode = 'STATUS_SUCCESS';
+
   @override
   List<Field> request = [
     Field('StructureSize', 2, defaultValue: 36),
@@ -13,23 +22,7 @@ class Negotiate extends Structure {
     Field('Dialects', 4, defaultValue: 0x02021002),
   ];
 
-/*
-*
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-* */
   @override
   List<Field> response = [
     Field('StructureSize', 2),
@@ -46,6 +39,6 @@ class Negotiate extends Structure {
     Field('SecurityBufferOffset', 2),
     Field('SecurityBufferLength', 2),
     Field('Reserved2', 4),
-    Field('Buffer', 'SecurityBufferLength'),
+    Field('Buffer', 0, dynamicLength: 'SecurityBufferLength'),
   ];
 }

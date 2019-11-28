@@ -1,12 +1,15 @@
 import 'dart:typed_data';
 
 import 'package:smb2/src/tools/buffer.dart';
+import 'package:smb2/src/tools/smb_message.dart';
 
 abstract class Structure {
   List<Field> request;
   List<Field> response;
   int fixedLength = 0;
   bool useTranslate = false;
+  String successCode = 'STATUS_SUCCESS';
+
 
   static final protocolId = [
     0xfe,
@@ -37,8 +40,29 @@ abstract class Structure {
     'OPLOCK_BREAK': 0x0012,
   };
 
+  Map<String, dynamic> headers = {};
+
   List<int> getBuffer([Map<String, dynamic> data ]) {
+    data ??= Map<String, dynamic>();
     final buffer = ByteDataWriter(bufferLength: fixedLength > 0 ? fixedLength : 512);
+
+    /* 设置动态长度 */
+    request.forEach((r) {
+      if(r.dynamicLength != null) {
+        if(r.dynamicLength != '' && data[r.key] != null) {
+          final v = data[r.key];
+          if(v is List) {
+            data[r.dynamicLength] = v.length;
+          } else {
+            print(r);
+            throw '未实现4';
+          }
+        }
+      }
+    });
+
+    print(data);
+
     request.forEach((r) {
       dynamic value = data != null ? data[r.key] : null;
       value ??= r.defaultValue ?? 0;
@@ -66,12 +90,18 @@ abstract class Structure {
         }else if(value is List<int>) {
           valueListInt = value;
         }
+
         if(valueListInt is List<int>){
-          final l = valueListInt.length;
-          valueListInt.length = r.length;
-          valueListInt.fillRange(l, valueListInt.length, 0);
-          buffer.write(valueListInt);
+          if(r.length == null || r.length == 0) {
+            buffer.write(valueListInt);
+          } else {
+            final l = valueListInt.length;
+            valueListInt.length = r.length;
+            valueListInt.fillRange(l, valueListInt.length, 0);
+            buffer.write(valueListInt);
+          }
         }else {
+          print(r);
           throw '未实现3';
         }
       }
@@ -81,13 +111,14 @@ abstract class Structure {
   }
 
   Map<String, dynamic> parse(List<int> buffer) {
+    if(response.length == 0) return {} as Map<String, dynamic>;
     final reader = ByteDataReader();
     reader.add(buffer);
     Map<String, dynamic> data = {};
     response.forEach((r) {
       var value;
-      if(r.length is String) {
-        value = reader.read(data[r.length]);
+      if(r.dynamicLength != null) {
+        value = reader.read(data[r.dynamicLength]);
       }else if(r.length is int && [1,2,4,8].contains(r.length)) {
         value = reader.readUint(r.length, Endian.little);
       } else {
@@ -105,17 +136,26 @@ abstract class Structure {
     return data;
   }
 
+
+  Future<SMBMessage> preProcessing(SMBMessage msg) async {
+    return msg;
+  }
+
+  onSuccess (SMBMessage msg) {
+  }
+
 }
 class Field {
   String key;
-  dynamic length;
+  int length;
   dynamic defaultValue;
   Map<String, dynamic> translates;
-  Field(this.key, this.length, {this.defaultValue, this.translates});
+  Field(this.key, this.length, {this.defaultValue, this.translates, this.dynamicLength});
+
+  String dynamicLength;
 
   @override
   String toString() {
-    return "key: ${key}, length:${length}, defaultValue: ${defaultValue}, translates: ${translates}";
-
+    return "key: ${key}, length:${length}, defaultValue: ${defaultValue}, translates: ${translates}, dynamicLength: ${dynamicLength}";
   }
 }
