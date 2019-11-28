@@ -3,12 +3,16 @@ import 'dart:typed_data';
 import 'package:smb2/src/tools/buffer.dart';
 import 'package:smb2/src/tools/smb_message.dart';
 
+import '../../smb2.dart';
+
 abstract class Structure {
   List<Field> request;
   List<Field> response;
   int fixedLength = 0;
   bool useTranslate = false;
   String successCode = 'STATUS_SUCCESS';
+
+  SMB connection;
 
 
   static final protocolId = [
@@ -95,10 +99,16 @@ abstract class Structure {
           if(r.length == null || r.length == 0) {
             buffer.write(valueListInt);
           } else {
-            final l = valueListInt.length;
-            valueListInt.length = r.length;
-            valueListInt.fillRange(l, valueListInt.length, 0);
-            buffer.write(valueListInt);
+
+            final newList = List<int>(r.length);
+            newList.fillRange(0, newList.length, 0);
+
+            int i = 0;
+            valueListInt.forEach((v) {
+              newList[i++] = v;
+            });
+
+            buffer.write(newList);
           }
         }else {
           print(r);
@@ -115,12 +125,23 @@ abstract class Structure {
     final reader = ByteDataReader();
     reader.add(buffer);
     Map<String, dynamic> data = {};
+
     response.forEach((r) {
       var value;
       if(r.dynamicLength != null) {
-        value = reader.read(data[r.dynamicLength]);
+        if(data[r.dynamicLength] != null && data[r.dynamicLength] > 0){
+          value = reader.read(data[r.dynamicLength]);
+        }else {
+          value = [];
+        }
       }else if(r.length is int && [1,2,4,8].contains(r.length)) {
-        value = reader.readUint(r.length, Endian.little);
+        try {
+          value = reader.readUint(r.length, Endian.little);
+        }catch (err) {
+          print(r);
+          print(err);
+          value = 0;
+        }
       } else {
         value = reader.read(r.length);
       }

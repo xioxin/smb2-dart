@@ -1,20 +1,16 @@
-import 'dart:convert';
-import 'dart:io';
-
-import 'dart:math';
-
-import 'dart:typed_data';
-
 import 'package:smb2/smb2.dart';
-import 'package:smb2/src/tools/buffer.dart';
 
 void main() async {
 
-  final smb = SMB(ip: '127.0.0.1');
+  final smb = SMB(ip: '10.10.10.3', username: 'admin', password: 'Zhaoxin110', path : 'comic');
 
   await smb.connect();
 
-
+  if(await smb.exists('index.php')) {
+    print('文件存在');
+  } else {
+    print('文件不存在');
+  }
 
 }
 

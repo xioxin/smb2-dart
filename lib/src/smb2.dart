@@ -9,17 +9,20 @@ import 'package:smb2/src/structures/base.dart';
 import 'package:smb2/src/structures/header.dart';
 import 'package:smb2/src/structures/negotiate.dart';
 import 'package:smb2/src/structures/session_setup.dart';
+import 'package:smb2/src/structures/tree_connect.dart';
 import 'package:smb2/src/tools/buffer.dart';
 import 'package:smb2/src/tools/ms_erref.dart';
 
+import 'structures/close.dart';
+import 'structures/open.dart';
+import 'tools/ntlm/type2.dart';
 import 'tools/smb_message.dart';
-
-ZLibCodec zlib;
 
 class SMB {
 
   String ip;
   String port;
+
 
   String domain;
   String username;
@@ -37,8 +40,9 @@ class SMB {
 
   int sessionId;
   int messageId = 0;
-  List<int> processId;
+  int treeId;
 
+  List<int> processId;
 
   bool isAsync = false;
   bool isMessageIdSetted = false;
@@ -46,13 +50,27 @@ class SMB {
   bool connected = false;
 
   List<int> nonce;
+  String path = '';
 
+  Type2Message type2Message;
 
   Map<String, Completer<SMBMessage>> responsesCompleter = {};
 
   ByteDataReader responseBuffer = ByteDataReader();
 
+  String get fullPath {
+    String p = '\\\\';
+    p += ip;
+    p += '\\';
+    if(path != null && path != '') {
+      p += path;
+    }
+    return p;
+  }
+
+
   SMB({
+    this.path,
     this.ip, this.username, this.password, this.domain,
     this.port, this.debug, this.autoCloseTimeout, this.packetConcurrency,
   }) {
@@ -80,11 +98,14 @@ class SMB {
 
     await request(Negotiate(), {});
 //    print(test);
-    await request(SessionSetupStep1(this), {});
+    await request(SessionSetupStep1(), {});
+    await request(SessionSetupStep2(), {});
+    await request(TreeConnect(), {});
 
   }
 
   Future<SMBMessage> request(Structure structure, Map<String, dynamic> params) async {
+    structure.connection = this;
     final mid = this.messageId ++;
 
     print('\n\n\n ===================: ${mid} :=================== ');
@@ -179,7 +200,33 @@ class SMB {
 
 
 
-  exists() {}
+  Future<bool> exists(String path) async {
+    var data;
+    try {
+      data = await request(OpenFile(), {
+        'path': path,
+      });
+    } catch ( err ) {
+      if(err is MsException) {
+        if(err.code == 'STATUS_OBJECT_NAME_NOT_FOUND' || err.code == 'STATUS_OBJECT_PATH_NOT_FOUND') {
+          return false;
+        }
+      }
+      throw err;
+    }
+
+    final fileId = data.data['FileId'];
+    await close(fileId);
+    return true;
+  }
+
+  close(List<int> fileId) async {
+    final data = await request(CloseFile(), {
+      'fileId': fileId,
+    });
+    print(data);
+  }
+
 
   rename() {}
 
@@ -207,7 +254,6 @@ class SMB {
 
   write() {}
 
-  close() {}
 
   truncate() {}
 }

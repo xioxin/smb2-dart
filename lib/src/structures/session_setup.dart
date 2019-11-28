@@ -30,15 +30,10 @@ import 'base.dart';
 * */
 
 class SessionSetup extends Structure {
-  SMB connection;
-
   @override
   Map<String, dynamic> headers = {
     'Command': 'SESSION_SETUP',
   };
-
-  @override
-  String successCode = 'STATUS_MORE_PROCESSING_REQUIRED';
 
   @override
   List<Field> request = [
@@ -62,7 +57,6 @@ class SessionSetup extends Structure {
     Field('Buffer',0, dynamicLength: 'SecurityBufferLength'),
   ];
 
-  SessionSetup(this.connection);
 }
 
 
@@ -78,27 +72,30 @@ class SessionSetupStep1 extends SessionSetup {
     return super.getBuffer(data);
   }
 
+  @override
+  String successCode = 'STATUS_MORE_PROCESSING_REQUIRED';
+
   onSuccess (SMBMessage msg) {
     connection.sessionId = msg.header['SessionId'];
-    final t2msg = parseType2Message(msg.buffer);
-    print(t2msg);
+    final t2msg = parseType2Message(msg.data['Buffer']);
+    connection.type2Message = t2msg;
     connection.nonce = t2msg.serverChallenge.toList();
   }
 
-  SessionSetupStep1(SMB connection): super(connection);
 }
 
 
-//class SessionSetupStep2 extends SessionSetup {
-//
-//  @override
-//  List<int> getBuffer([Map<String, dynamic> data ]) {
-//    final buf = createType3Message(hostname: this.connection.ip, domain: this.connection.domain, password: );
-//    Map<String, dynamic> data = {
-//      'Buffer': buf,
-//    };
-//    return super.getBuffer(data);
-//  }
-//
-//  SessionSetupStep1(SMB connection): super(connection);
-//}
+class SessionSetupStep2 extends SessionSetup {
+
+  @override
+  String successCode = 'STATUS_SUCCESS';
+
+  @override
+  List<int> getBuffer([Map<String, dynamic> data ]) {
+    final buf = createType3Message(this.connection.type2Message, hostname: this.connection.ip, domain: this.connection.domain, password: this.connection.password, username: this.connection.username);
+    Map<String, dynamic> data = {
+      'Buffer': buf,
+    };
+    return super.getBuffer(data);
+  }
+}
