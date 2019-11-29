@@ -2,6 +2,7 @@ import 'package:utf/utf.dart';
 
 import 'base.dart';
 
+
 class Create extends Structure {
   @override
   Map<String, dynamic> get headers =>
@@ -43,7 +44,7 @@ class Create extends Structure {
     Field('LastWriteTime', 8),
     Field('ChangeTime', 8),
     Field('AllocationSize', 8),
-    Field('EndofFile', 8),
+    Field('EndOfFile', 8),
     Field('FileAttributes', 4),
     Field('Reserved2', 4),
     Field('FileId', 16),

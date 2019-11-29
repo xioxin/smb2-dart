@@ -8,21 +8,22 @@ import 'dart:typed_data';
 import 'package:smb2/src/structures/base.dart';
 import 'package:smb2/src/structures/header.dart';
 import 'package:smb2/src/structures/negotiate.dart';
+import 'package:smb2/src/structures/read.dart';
 import 'package:smb2/src/structures/session_setup.dart';
 import 'package:smb2/src/structures/tree_connect.dart';
 import 'package:smb2/src/tools/buffer.dart';
+import 'package:smb2/src/tools/concurrent_queue.dart';
 import 'package:smb2/src/tools/ms_erref.dart';
 
 import 'structures/close.dart';
 import 'structures/open.dart';
+import 'tools/constant.dart';
 import 'tools/ntlm/type2.dart';
 import 'tools/smb_message.dart';
 
 class SMB {
-
   String ip;
   String port;
-
 
   String domain;
   String username;
@@ -34,7 +35,7 @@ class SMB {
   int autoCloseTimeout;
 
   // 并发
-  int packetConcurrency;
+  int packetConcurrency = 20;
 
   Socket socket;
 
@@ -56,30 +57,35 @@ class SMB {
 
   Map<String, Completer<SMBMessage>> responsesCompleter = {};
 
-  ByteDataReader responseBuffer = ByteDataReader();
+  List<int> responseBuffer = List();
 
   String get fullPath {
     String p = '\\\\';
     p += ip;
     p += '\\';
-    if(path != null && path != '') {
+    if (path != null && path != '') {
       p += path;
     }
     return p;
   }
 
-
   SMB({
     this.path,
-    this.ip, this.username, this.password, this.domain,
-    this.port, this.debug, this.autoCloseTimeout, this.packetConcurrency,
+    this.ip,
+    this.username,
+    this.password,
+    this.domain,
+    this.port,
+    this.debug,
+    this.autoCloseTimeout,
+    this.packetConcurrency,
   }) {
     this.domain ??= 'WORKGROUP';
   }
 
   Future connect() async {
-    this.socket =
-    await Socket.connect(this.ip, this.port ?? 445, timeout: Duration(seconds: 5));
+    this.socket = await Socket.connect(this.ip, this.port ?? 445,
+        timeout: Duration(seconds: 5));
 
     socket.listen(response);
 
@@ -99,16 +105,16 @@ class SMB {
     await request(SessionSetupStep1(), {});
     await request(SessionSetupStep2(), {});
     await request(TreeConnect(), {});
-
   }
 
-  Future<SMBMessage> request(Structure structure, Map<String, dynamic> params) async {
+  Future<SMBMessage> request(
+      Structure structure, Map<String, dynamic> params) async {
     structure.connection = this;
-    final mid = this.messageId ++;
+    final mid = this.messageId++;
 
-    final header = this.isAsync ?
-    HeaderAsync(processId: this.processId, sessionId: this.sessionId) :
-    HeaderSync(processId: this.processId, sessionId: this.sessionId);
+    final header = this.isAsync
+        ? HeaderAsync(processId: this.processId, sessionId: this.sessionId)
+        : HeaderSync(processId: this.processId, sessionId: this.sessionId);
     final headerData = Map<String, dynamic>();
     headerData.addAll(structure.headers);
     headerData['MessageId'] = mid;
@@ -125,57 +131,53 @@ class SMB {
     SMBMessage msg = await c.future;
 
     msg = await structure.preProcessing(msg);
-    if(structure.successCode == msg.status.code) {
-      msg.data = structure.parse(msg.buffer);
+    if (structure.successCode == msg.status.code) {
+      msg.setData(structure.parse(msg.buffer));
       structure.onSuccess(msg);
       return msg;
     }
     throw msg.status;
   }
 
-
   response(List<int> data) {
-    responseBuffer.add(data);
-    bool extract = true;
-    while (extract) {
-      extract = false;
-      if(responseBuffer.remainingLength >= 4) {
-        final msgLength = responseBuffer.readUint32(Endian.big);
-        
-        if(responseBuffer.remainingLength >= msgLength) {
-          extract = true;
-          final headerData = readHeaders(responseBuffer.read(HeaderLength));
+    responseBuffer.addAll(data);
+    if (responseBuffer.length >= 4) {
+      try {
+        final msgLength = ByteData.view(Uint8List.fromList(responseBuffer).buffer,0, 4).getUint32(0, Endian.big);
+        if (responseBuffer.length >= msgLength + 4) {
+          final headerData = readHeaders(responseBuffer.sublist(4, 4 + HeaderLength));
           var mId = headerData["MessageId"].toRadixString(16).padLeft(8, '0');
-
-          final buffer = responseBuffer.read(msgLength - HeaderLength);
-
-          final msg = SMBMessage(id: mId, header: headerData, buffer: buffer, status: getStatus(headerData['Status']));
+          final buffer = responseBuffer.sublist(4 + HeaderLength, 4 + msgLength);
+          final msg = SMBMessage(
+              messageId: mId,
+              header: headerData,
+              buffer: buffer,
+              status: getStatus(headerData['Status']));
           if (responsesCompleter[mId] != null) {
             responsesCompleter[mId].complete(msg);
             responsesCompleter[mId] = null;
           } else {
             throw "no find responsesCompleter MessigeId:${mId}";
           }
-
-          if(this.responseBuffer.remainingLength > 0) {
-            final oldResponseBuffer = this.responseBuffer;
-            this.responseBuffer.add(oldResponseBuffer.read(oldResponseBuffer.remainingLength).toList());
+          if (responseBuffer.length > 4 + msgLength + HeaderLength) {
+            this.responseBuffer = this.responseBuffer.sublist(4 + msgLength + HeaderLength, this.responseBuffer.length);
           } else {
-            this.responseBuffer = ByteDataReader();
+            this.responseBuffer.clear();
           }
         }
+      } catch(err) {
+        print(data);
+        throw err;
       }
     }
   }
 
-
   Map<String, dynamic> readHeaders(List<int> buffer) {
-    final header = this.isAsync ?
-    HeaderAsync(processId: this.processId, sessionId: this.sessionId) :
-    HeaderSync(processId: this.processId, sessionId: this.sessionId);
+    final header = this.isAsync
+        ? HeaderAsync(processId: this.processId, sessionId: this.sessionId)
+        : HeaderSync(processId: this.processId, sessionId: this.sessionId);
     return header.parse(buffer);
   }
-
 
   List<int> addNetBios(List<int> buffer) {
     var netBios = ByteDataWriter(bufferLength: 4);
@@ -186,41 +188,92 @@ class SMB {
   }
 
   Future<bool> exists(String path) async {
-    var data;
+    var file;
     try {
-      data = await request(OpenFile(), {
-        'path': path,
-      });
-    } catch ( err ) {
-      if(err is MsException) {
-        if(err.code == 'STATUS_OBJECT_NAME_NOT_FOUND' || err.code == 'STATUS_OBJECT_PATH_NOT_FOUND') {
+      file = await open(path);
+    } catch (err) {
+      if (err is MsException) {
+        if (err.code == 'STATUS_OBJECT_NAME_NOT_FOUND' ||
+            err.code == 'STATUS_OBJECT_PATH_NOT_FOUND') {
           return false;
         }
       }
       throw err;
     }
-
-    final fileId = data.data['FileId'];
-    await close(fileId);
+    await close(file);
     return true;
   }
 
-  close(List<int> fileId) async {
-    final data = await request(CloseFile(), {
-      'fileId': fileId,
+  close(SMBFile file) async {
+    return await request(CloseFile(), {
+      'fileId': file.fileId,
     });
   }
 
   rename() {}
 
-  List<int> readFile(String path) {
-    /*
-    * smb2Client.readFile('path\\to\\my\\file.txt', function(err, content) {
-  if (err) throw err;
-  console.log(content);
-});
-    * */
+  Future<List<int>> readFile(
+    SMBFile file, {
+    int length,
+    int offset,
+  }) async {
+    length ??= file.fileLength;
+    offset ??= 0;
+    final start = offset;
+    offset = 0;
+    final List<int> result = List(length);
 
+    final cq = ConcurrentQueue(5, () {
+      if(offset >= length) return null;
+      final packetOffset = start + offset;
+      final resultOffset = offset;
+      int packetSize = min(MAX_READ_LENGTH, length - offset);
+      offset += packetSize;
+      Completer c = new Completer();
+      (() async {
+//        print('packetOffset: $packetOffset, packetSize: $packetSize');
+//        await Future.delayed(const Duration(seconds: 1));
+        print('readFile');
+        print({
+          'fileId': file.fileId,
+          'length': packetSize,
+          'offset': packetOffset,
+        });
+
+        final msg = await request(ReadFile(), {
+          'fileId': file.fileId,
+          'length': packetSize,
+          'offset': packetOffset,
+        });
+
+        final List<int> buf = msg.data['Buffer'];
+        if(buf is List) {
+          int i = 0;
+          buf.forEach((v) => result[resultOffset + (i++)] = v);
+        }
+        c.complete();
+      })();
+      return c.future;
+    });
+
+    await cq.future;
+
+    print('over');
+
+    return result;
+  }
+
+  Future<SMBFile> open(String path, {int mask = FILE_OPEN}) async {
+    final msg = await request(OpenFile(), {
+      'path': path,
+      'desiredAccess': mask,
+    });
+
+    final file = SMBFile.formMessage(msg);
+
+    print(file);
+
+    return file;
   }
 
   createReadStream() {}
@@ -239,12 +292,9 @@ class SMB {
 
   getSize() {}
 
-  open() {}
-
   read() {}
 
   write() {}
-
 
   truncate() {}
 }
