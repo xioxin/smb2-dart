@@ -385,7 +385,7 @@ class ByteDataReader {
 
   Uint8List read(int length, {bool copy}) {
     if (_queue.isEmpty || _queueTotalLength - _offset < length) {
-      throw new StateError('Not enough bytes to read.');
+      throw new StateError('Not enough bytes to read. TotalLength:$_queueTotalLength, TargetEnd: offset(${_offset}) + length(${length} = ${_offset + length})');
     }
     _clearQueue();
     final shouldCopy = copy ?? _copy;
@@ -417,6 +417,10 @@ class ByteDataReader {
       }
     }
     return bb.toBytes();
+  }
+
+  skip(int length) {
+    _offset += length;
   }
 
   double readFloat32([Endian endian]) {

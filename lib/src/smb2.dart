@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'package:smb2/src/structures/base.dart';
 import 'package:smb2/src/structures/header.dart';
 import 'package:smb2/src/structures/negotiate.dart';
+import 'package:smb2/src/structures/query_directory.dart';
 import 'package:smb2/src/structures/read.dart';
 import 'package:smb2/src/structures/session_setup.dart';
 import 'package:smb2/src/structures/tree_connect.dart';
@@ -144,9 +145,14 @@ class SMB {
     if (responseBuffer.length >= 4) {
       try {
         final msgLength = ByteData.view(Uint8List.fromList(responseBuffer).buffer,0, 4).getUint32(0, Endian.big);
-        if (responseBuffer.length >= msgLength + 4) {
+
+        if(msgLength == 0){
+          print('msgLength Is 0');
+          print(responseBuffer.sublist(0 , 100));
+        } else if (responseBuffer.length >= msgLength + 4) {
           final headerData = readHeaders(responseBuffer.sublist(4, 4 + HeaderLength));
           var mId = headerData["MessageId"].toRadixString(16).padLeft(8, '0');
+
           final buffer = responseBuffer.sublist(4 + HeaderLength, 4 + msgLength);
           final msg = SMBMessage(
               messageId: mId,
@@ -160,13 +166,13 @@ class SMB {
             throw "no find responsesCompleter MessigeId:${mId}";
           }
           if (responseBuffer.length > 4 + msgLength + HeaderLength) {
-            this.responseBuffer = this.responseBuffer.sublist(4 + msgLength + HeaderLength, this.responseBuffer.length);
+            this.responseBuffer = this.responseBuffer.sublist(4 + msgLength, this.responseBuffer.length);
           } else {
             this.responseBuffer.clear();
           }
         }
       } catch(err) {
-        print(data);
+//        print(data);
         throw err;
       }
     }
@@ -223,14 +229,13 @@ class SMB {
     offset = 0;
     final List<int> result = List(length);
 
-    final cq = ConcurrentQueue(5, () {
+    await ConcurrentQueue(this.packetConcurrency, () {
       if(offset >= length) return null;
       final packetOffset = start + offset;
       final resultOffset = offset;
       int packetSize = min(MAX_READ_LENGTH, length - offset);
       offset += packetSize;
-      Completer c = new Completer();
-      (() async {
+      return (() async {
 //        print('packetOffset: $packetOffset, packetSize: $packetSize');
 //        await Future.delayed(const Duration(seconds: 1));
         print('readFile');
@@ -251,14 +256,8 @@ class SMB {
           int i = 0;
           buf.forEach((v) => result[resultOffset + (i++)] = v);
         }
-        c.complete();
       })();
-      return c.future;
-    });
-
-    await cq.future;
-
-    print('over');
+    }).future;
 
     return result;
   }
@@ -284,7 +283,17 @@ class SMB {
 
   unlink() {}
 
-  readdir() {}
+  readDirectory(String path, {String filter = '*'}) async {
+    final file = SMBFile.formMessage(await request(OpenFile(), { 'path': path }));
+    final msg = await request(QueryDirectory(), { 'fileId': file.fileId, 'filter': filter });
+
+    final files = parseFiles(msg.data['Buffer']);
+
+    print(files);
+
+    await close(file);
+
+  }
 
   rmdir() {}
 

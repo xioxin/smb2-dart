@@ -18,13 +18,14 @@ void main() async {
 //  }
 
 
-  final file = await smb.open('index.php');
-  final fileData = await smb.readFile(file);
+//  final file = await smb.open('LOL\\[LOL] Shiritsu Nikubenki Senmon Gakuen -Kikaika-  [chinese].zip');
+//  final fileData = await smb.readFile(file);
+//  print(utf8.decode(fileData));
+//  await smb.close(file);
 
-  print(utf8.decode(fileData));
+ final files = await smb.readDirectory('LOL');
 
-  await smb.close(file);
-
+ print(files);
 
 //
 //  int n = 0;
