@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 
 import 'dart:math';
@@ -33,10 +34,10 @@ class SMB {
   bool debug;
 
   // 自动断开时间
-  int autoCloseTimeout;
+  Duration autoCloseTimeout;
 
   // 并发
-  int packetConcurrency = 20;
+  int packetConcurrency;
 
   Socket socket;
 
@@ -58,7 +59,7 @@ class SMB {
 
   Map<String, Completer<SMBMessage>> responsesCompleter = {};
 
-  List<int> responseBuffer = List();
+  List<int> responseBuffer = [];
 
   String get fullPath {
     String p = '\\\\';
@@ -82,6 +83,8 @@ class SMB {
     this.packetConcurrency,
   }) {
     this.domain ??= 'WORKGROUP';
+    this.packetConcurrency ??= 20;
+    this.autoCloseTimeout ??= Duration(milliseconds: 2000);
   }
 
   Future connect() async {
@@ -129,7 +132,12 @@ class SMB {
     final mid = messageId.toRadixString(16).padLeft(8, '0');
     Completer c = new Completer<SMBMessage>();
     responsesCompleter[mid] = c;
-    SMBMessage msg = await c.future;
+    SMBMessage msg = await c.future.timeout(this.autoCloseTimeout, onTimeout: () {
+
+      print(structure);
+      print('messageId: $messageId');
+      throw "TimeOut";
+    });
 
     msg = await structure.preProcessing(msg);
     if (structure.successCode == msg.status.code) {
@@ -141,14 +149,19 @@ class SMB {
   }
 
   response(List<int> data) {
+
+    print('response L: ${data.length}');
+
+//    ByteDataReader
+
     responseBuffer.addAll(data);
     if (responseBuffer.length >= 4) {
       try {
         final msgLength = ByteData.view(Uint8List.fromList(responseBuffer).buffer,0, 4).getUint32(0, Endian.big);
-
+        print('msgLength Is ${msgLength}, responseBuffer Length: ${responseBuffer.length}');
         if(msgLength == 0){
           print('msgLength Is 0');
-          print(responseBuffer.sublist(0 , 100));
+          print(responseBuffer.sublist(0 , 50));
         } else if (responseBuffer.length >= msgLength + 4) {
           final headerData = readHeaders(responseBuffer.sublist(4, 4 + HeaderLength));
           var mId = headerData["MessageId"].toRadixString(16).padLeft(8, '0');
@@ -165,14 +178,9 @@ class SMB {
           } else {
             throw "no find responsesCompleter MessigeId:${mId}";
           }
-          if (responseBuffer.length > 4 + msgLength + HeaderLength) {
-            this.responseBuffer = this.responseBuffer.sublist(4 + msgLength, this.responseBuffer.length);
-          } else {
-            this.responseBuffer.clear();
-          }
+          this.responseBuffer.removeRange(0, 4 + msgLength);
         }
       } catch(err) {
-//        print(data);
         throw err;
       }
     }

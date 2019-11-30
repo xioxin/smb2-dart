@@ -11,6 +11,16 @@ void main() async {
 
   await smb.connect();
 
+
+  await smb.connect();
+  final file = await smb.open('LOL\\[LOL] Shiritsu Nikubenki Senmon Gakuen -Kikaika- [Chinese] [贝尔西行寺个人汉化].zip');
+
+  await smb.readFile(file);
+  print('erad end');
+
+  smb.close(file);
+
+
 //  if(await smb.exists('index.php')) {
 //    print('文件存在');
 //  } else {
@@ -23,9 +33,9 @@ void main() async {
 //  print(utf8.decode(fileData));
 //  await smb.close(file);
 
- final files = await smb.readDirectory('LOL');
-
- print(files);
+// final files = await smb.readDirectory('LOL');
+//
+// print(files);
 
 //
 //  int n = 0;

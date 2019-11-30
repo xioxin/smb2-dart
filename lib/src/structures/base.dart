@@ -137,7 +137,8 @@ abstract class Structure {
           value = reader.readUint(r.length, Endian.little);
         }catch (err) {
           print(r);
-          print(err);
+          print(this.headers);
+          throw (err);
           value = 0;
         }
       } else {

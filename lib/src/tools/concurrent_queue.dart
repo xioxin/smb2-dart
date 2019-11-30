@@ -5,7 +5,7 @@ typedef Future TaskBuilder();
 
 class ConcurrentQueue {
 
-  int count;
+  int count = 0;
   TaskBuilder taskBuilder;
 
   Set<Future> tasks = Set();
@@ -21,6 +21,7 @@ class ConcurrentQueue {
   Future get future => completer.future;
 
   getTask() {
+
     while (tasks.length < this.count && stop == false) {
       final task = this.taskBuilder();
       if(task == null) {

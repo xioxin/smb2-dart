@@ -29,7 +29,7 @@ class CloseFile extends Structure {
     Field('ChangeTime', 8),
     Field('AllocationSize', 8),
     Field('EndofFile', 8),
-    Field('FileAttributes', 4),
+//    Field('FileAttributes', 4),
   ];
 
   @override
