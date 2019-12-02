@@ -37,8 +37,6 @@ class TreeConnect extends Structure {
     Map<String, dynamic> data = {};
     if(data != null) data.addAll(_data);
 
-    print(connection.fullPath);
-
     data['Buffer'] = encodeUtf16le(connection.fullPath);
 
     return super.getBuffer(data);

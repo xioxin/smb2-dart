@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:smb2/src/structures/base.dart';
 import 'package:smb2/src/tools/buffer.dart';
+import 'package:smb2/src/tools/constant.dart';
+import 'package:smb2/src/tools/smb_message.dart';
 import 'package:smb2/src/tools/tools.dart';
 import 'package:utf/utf.dart';
 
@@ -48,19 +50,15 @@ class QueryDirectory extends Structure {
 }
 
 
-parseFiles (List<int> buffer) {
+List<SMBFile> parseFiles (List<int> buffer) {
   final reader = ByteData.view(Uint8List.fromList(buffer).buffer);
-  final files = [];
+  final List<SMBFile> files = [];
   var offset = 0;
   var nextFileOffset = -1;
   while (nextFileOffset != 0) {
     // extract next file offset
     nextFileOffset = reader.getUint32(offset, Endian.little) ;
     // extract the file
-
-    print('bufferL: ${buffer.length}, offset: $offset, nextFileOffset: $nextFileOffset');
-    print('s: ${offset + 4}, e: ${nextFileOffset == 0 ? offset + nextFileOffset : buffer.length}');
-
     files.add(
         parseFile(
             buffer.sublist(
@@ -73,39 +71,13 @@ parseFiles (List<int> buffer) {
     offset += nextFileOffset;
   }
   return files;
-
 }
 
-class SMBFileInfo {
-  int index;
-  DateTime creationTime;
-  DateTime lastAccessTime;
-  DateTime lastWriteTime;
-  DateTime changeTime;
-  int endOfFile;
-  int allocationSize;
-  int fileAttributes;
-  int filenameLength;
-  int eaSize;
-  int shortNameLength;
-  List<int> fileId;
-
-  String shortName;
-  String fileName;
-
-  SMBFileInfo();
-
-  @override
-  String toString() {
-    return "SMBFileInfo<$fileName>";
-  }
-}
 
 parseFile(List<int> buffer) {
-  print(buffer);
   final reader = ByteDataReader(endian: Endian.little);
   reader.add(buffer);
-  var file = SMBFileInfo();
+  var file = SMBFile();
   file.index = reader.readUint(4);
   file.creationTime = fileTimeToDateTime(reader.readUint(8));
   file.lastAccessTime = fileTimeToDateTime(reader.readUint(8));
@@ -114,6 +86,7 @@ parseFile(List<int> buffer) {
   file.endOfFile = reader.readUint(8);
   file.allocationSize = reader.readUint(8);
   file.fileAttributes = reader.readUint(4);
+
   file.filenameLength = reader.readUint(4);
   file.eaSize = reader.readUint(4);
   file.shortNameLength = reader.readUint(1);
@@ -123,5 +96,6 @@ parseFile(List<int> buffer) {
   reader.skip(2);
   file.fileId = reader.read(8);
   file.fileName = decodeUtf16le(reader.read(file.filenameLength));
+
   return file;
 }

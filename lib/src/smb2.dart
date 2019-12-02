@@ -24,8 +24,10 @@ import 'tools/ntlm/type2.dart';
 import 'tools/smb_message.dart';
 
 class SMB {
+
+  Uri uri;
   String ip;
-  String port;
+  int port;
 
   String domain;
   String username;
@@ -50,10 +52,13 @@ class SMB {
   bool isAsync = false;
   bool isMessageIdSetted = false;
 
+  bool connectLock = false;
   bool connected = false;
 
   List<int> nonce;
-  String path = '';
+  String smbPath = '';
+
+  List<String> rootPath = [];
 
   Type2Message type2Message;
 
@@ -65,31 +70,76 @@ class SMB {
     String p = '\\\\';
     p += ip;
     p += '\\';
-    if (path != null && path != '') {
-      p += path;
+    if (smbPath != null && smbPath != '') {
+      p += smbPath;
     }
     return p;
   }
 
-  SMB({
-    this.path,
-    this.ip,
-    this.username,
-    this.password,
+  SMB(Uri this.uri, {
     this.domain,
-    this.port,
     this.debug,
     this.autoCloseTimeout,
     this.packetConcurrency,
   }) {
+    if(uri.scheme != 'smb') {
+      throw "Scheme not smb";
+    }
+
+    if(uri.pathSegments.length < 1) {
+      throw "At least one path is required";
+    }
+    this.ip = uri.host;
+    this.port = uri.hasPort ? uri.port : 445;
+    final userInfo = uri.userInfo.split(':').toList();
+
+    if(userInfo.length >= 1) {
+      this.username = Uri.decodeComponent(userInfo[0]);
+    }
+    if(userInfo.length >= 2) {
+      this.password = Uri.decodeComponent(userInfo[1]);
+    }
+
+    if(this.domain == null){
+      if(userInfo.length >= 3) {
+        this.domain = Uri.decodeComponent(userInfo[2]);
+      }
+    }
     this.domain ??= 'WORKGROUP';
+
+    this.smbPath = uri.pathSegments.first;
+    this.rootPath = uri.pathSegments.sublist(1);
+
+    if(this.debug){
+      print(this);
+    }
+
     this.packetConcurrency ??= 20;
     this.autoCloseTimeout ??= Duration(milliseconds: 2000);
   }
 
+
+  toString() {
+    return "==== SMB ======================\n"
+        "     URI: $uri \n"
+        "      IP: $ip \n"
+        "    port: $port \n"
+        "  domain: $domain \n"
+        "username: $username \n"
+        "password: $password \n"
+        "    path: $smbPath \n"
+           "===============================";
+  }
+
   Future connect() async {
-    this.socket = await Socket.connect(this.ip, this.port ?? 445,
-        timeout: Duration(seconds: 5));
+
+    if(connectLock || connected) {
+      throw "Cannot connect repeatedly";
+    }
+
+    this.connectLock = true;
+
+    this.socket = await Socket.connect(this.ip, this.port ?? 445, timeout: Duration(seconds: 5));
 
     socket.listen(response);
 
@@ -109,6 +159,8 @@ class SMB {
     await request(SessionSetupStep1(), {});
     await request(SessionSetupStep2(), {});
     await request(TreeConnect(), {});
+    this.connectLock = false;
+    this.connected = true;
   }
 
   Future<SMBMessage> request(
@@ -132,12 +184,8 @@ class SMB {
     final mid = messageId.toRadixString(16).padLeft(8, '0');
     Completer c = new Completer<SMBMessage>();
     responsesCompleter[mid] = c;
-    SMBMessage msg = await c.future.timeout(this.autoCloseTimeout, onTimeout: () {
+    SMBMessage msg = await c.future;
 
-      print(structure);
-      print('messageId: $messageId');
-      throw "TimeOut";
-    });
 
     msg = await structure.preProcessing(msg);
     if (structure.successCode == msg.status.code) {
@@ -150,40 +198,41 @@ class SMB {
 
   response(List<int> data) {
 
-    print('response L: ${data.length}');
-
-//    ByteDataReader
-
     responseBuffer.addAll(data);
-    if (responseBuffer.length >= 4) {
-      try {
-        final msgLength = ByteData.view(Uint8List.fromList(responseBuffer).buffer,0, 4).getUint32(0, Endian.big);
-        print('msgLength Is ${msgLength}, responseBuffer Length: ${responseBuffer.length}');
-        if(msgLength == 0){
-          print('msgLength Is 0');
-          print(responseBuffer.sublist(0 , 50));
-        } else if (responseBuffer.length >= msgLength + 4) {
-          final headerData = readHeaders(responseBuffer.sublist(4, 4 + HeaderLength));
-          var mId = headerData["MessageId"].toRadixString(16).padLeft(8, '0');
 
-          final buffer = responseBuffer.sublist(4 + HeaderLength, 4 + msgLength);
-          final msg = SMBMessage(
-              messageId: mId,
-              header: headerData,
-              buffer: buffer,
-              status: getStatus(headerData['Status']));
-          if (responsesCompleter[mId] != null) {
-            responsesCompleter[mId].complete(msg);
-            responsesCompleter[mId] = null;
+    while(true) {
+      if (responseBuffer.length >= 4) {
+        try {
+          final msgLength = ByteData.view(Uint8List.fromList(responseBuffer).buffer,0, 4).getUint32(0, Endian.big);
+          if(msgLength == 0){
+            print('msgLength Is 0');
+          } else if (responseBuffer.length >= msgLength + 4) {
+            final headerData = readHeaders(responseBuffer.sublist(4, 4 + HeaderLength));
+            var mId = headerData["MessageId"].toRadixString(16).padLeft(8, '0');
+            final buffer = responseBuffer.sublist(4 + HeaderLength, 4 + msgLength);
+            final msg = SMBMessage(
+                messageId: mId,
+                header: headerData,
+                buffer: buffer,
+                status: getStatus(headerData['Status']));
+            if (responsesCompleter[mId] != null) {
+              responsesCompleter[mId].complete(msg);
+              responsesCompleter[mId] = null;
+            } else {
+              throw "no find responsesCompleter MessigeId:${mId}";
+            }
+            this.responseBuffer.removeRange(0, 4 + msgLength);
           } else {
-            throw "no find responsesCompleter MessigeId:${mId}";
+            return;
           }
-          this.responseBuffer.removeRange(0, 4 + msgLength);
+        } catch(err) {
+          throw err;
         }
-      } catch(err) {
-        throw err;
+      } else {
+        return;
       }
     }
+
   }
 
   Map<String, dynamic> readHeaders(List<int> buffer) {
@@ -244,15 +293,6 @@ class SMB {
       int packetSize = min(MAX_READ_LENGTH, length - offset);
       offset += packetSize;
       return (() async {
-//        print('packetOffset: $packetOffset, packetSize: $packetSize');
-//        await Future.delayed(const Duration(seconds: 1));
-        print('readFile');
-        print({
-          'fileId': file.fileId,
-          'length': packetSize,
-          'offset': packetOffset,
-        });
-
         final msg = await request(ReadFile(), {
           'fileId': file.fileId,
           'length': packetSize,
@@ -270,16 +310,27 @@ class SMB {
     return result;
   }
 
+
+  _parsePath(String path) {
+    final u = Uri.parse(path);
+    final List<String> pathSegments = [];
+    pathSegments.addAll(this.rootPath);
+    pathSegments.addAll(u.pathSegments);
+    final p = Uri.parse(pathSegments.where((v) => v != '').join('/')).toFilePath(windows: true);;
+    return p;
+  }
+
+
   Future<SMBFile> open(String path, {int mask = FILE_OPEN}) async {
+    path = _parsePath(path);
     final msg = await request(OpenFile(), {
       'path': path,
       'desiredAccess': mask,
     });
-
     final file = SMBFile.formMessage(msg);
-
-    print(file);
-
+    if(this.debug) {
+      print(file);
+    }
     return file;
   }
 
@@ -291,16 +342,16 @@ class SMB {
 
   unlink() {}
 
-  readDirectory(String path, {String filter = '*'}) async {
-    final file = SMBFile.formMessage(await request(OpenFile(), { 'path': path }));
+  Future<List<SMBFile>> readDirectory(String path, {String filter = '*'}) async {
+    final file = await this.open(path);
+    if(!file.isDirectory) {
+      await close(file);
+      throw "Not a Directory";
+    }
     final msg = await request(QueryDirectory(), { 'fileId': file.fileId, 'filter': filter });
-
     final files = parseFiles(msg.data['Buffer']);
-
-    print(files);
-
     await close(file);
-
+    return files;
   }
 
   rmdir() {}
@@ -314,4 +365,14 @@ class SMB {
   write() {}
 
   truncate() {}
+
+  disconnect() {
+    if (this.connected) {
+      this.connected = false;
+      this.responseBuffer.clear();
+      this.responsesCompleter.clear();
+      this.messageId = 0;
+      this.socket.close();
+    }
+  }
 }
